@@ -1,2 +1,27 @@
 # node-post
 
+NodeJS API using Lambda and PostgreSQL database
+
+## AWS
+
+This is deployed to AWS via CloudFormation using infra.yaml.
+
+Presently we are using the following services:
+
+- Lambda Functions
+  - IAM Permissions
+  - Cloudwatch Events and Rules
+  - SNS
+- RDS DB
+  - Security Groups
+- SecretsManager Secrets
+- Code Build
+- Application Load Balancer
+
+A parent VPC stack is required.
+
+Changes can be made at the Infrastructure level using this file (i.e. using DynamoDB instead of RDS).
+
+## Deploy
+
+Code is deployed by creating a release in GitHub. This will automatically trigger a CodeBuild which will deploy the Lambda's.
