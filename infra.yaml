@@ -1,0 +1,203 @@
+---
+# node-post
+#
+#
+# author: kjenney
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: 'node-post stack'
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'Parent Stacks'
+      Parameters:
+      - ParentVPCStack
+      - ParentAlertStack
+    - Label:
+        default: 'Database'
+      Parameters:
+      - DBInstanceClass
+      - DBUser
+      - DBPassword
+
+Parameters:
+  ParentVPCStack:
+    Description: 'Stack name of parent VPC stack based on vpc/vpc-*azs.yaml template.'
+    Type: String
+  ParentAlertStack:
+    Description: 'Optional but recommended stack name of parent alert stack based on operations/alert.yaml template.'
+    Type: String
+    Default: ''
+  DistinguishingName:
+    Description: The user-friendly name for resources
+    Type: String
+    MinLength: 1
+    MaxLength: 41
+    AllowedPattern: ^[a-zA-Z0-9]*$    # Only alphanumeric values
+
+  DBInstanceClass:
+    Description: Enter Intance Type of the RDS Instance
+    Type: String
+    Default: db.t2.medium
+
+  DBUser:
+    Description: Enter the RDS DB User
+    Type: String
+    Default: thrivewp
+
+  DBPassword:
+    Description: Enter the RDS DB Password
+    Type: String
+    NoEcho: true
+
+Conditions:
+  HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
+
+Resources:
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow from anywhere
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${ParentVPCStack}-VPCID"
+      SecurityGroupIngress:
+      - IpProtocol: "-1"
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: "-1"
+        CidrIp: 0.0.0.0/0
+  LambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Ref DistinguishingName
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AWSXrayFullAccess"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "root"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action: [
+                  "s3:Get*","s3:List*"
+                ]
+                Resource: "*"
+  MyLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: "index.handler"
+      Role:
+        {"Fn::GetAtt" : ["LambdaExecutionRole", "Arn"] }
+      Runtime: "nodejs6.10"
+      Timeout: 100
+      TracingConfig:
+        Mode: "Active"
+      VpcConfig:
+        SecurityGroupIds:
+          - Ref: LambdaSecurityGroup
+        SubnetIds:
+          - Fn::ImportValue:
+              !Sub "${ParentVPCStack}-SubnetAPrivate"
+          - Fn::ImportValue:
+              !Sub "${ParentVPCStack}-SubnetBPrivate"
+          - Fn::ImportValue:
+              !Sub "${ParentVPCStack}-SubnetAPublic"
+          - Fn::ImportValue:
+              !Sub "${ParentVPCStack}-SubnetBPublic"
+      Code:
+        ZipFile: |
+            console.log(‘PostgreSQL GET Function’);
+            var pg = require(“pg”);
+            var username = process.env.
+            exports.handler = function(event, context) {
+              var conn = "postgres://username:password@hostname/databasename";
+              var client = new pg.Client(conn);
+              client.connect();
+              //var id = event.id;
+              console.log(‘Connected to PostgreSQL database’);
+              var query = client.query(“SELECT column from table;”);
+              query.on(“row”, function (row, result) {
+              result.addRow(row);
+              });
+            query.on(“end”, function (result) {
+             var jsonString = JSON.stringify(result.rows);
+             var jsonObj = JSON.parse(jsonString);
+             console.log(jsonString);
+             client.end();
+             context.succeed(jsonObj);
+            });
+            };
+
+  mySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow rds access from lambda
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${ParentVPCStack}-VPCID"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 5432
+        ToPort: 5432
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: '-1'
+        CidrIp: 0.0.0.0/0
+  DBSecurityGroup:
+    Type: AWS::RDS::DBSecurityGroup
+    Properties:
+      EC2VpcId:
+        Fn::ImportValue:
+          !Sub "${ParentVPCStack}-VPCID"
+      DBSecurityGroupIngress:
+        -
+          EC2SecurityGroupId:
+            Ref: "mySecurityGroup"
+      GroupDescription: "Lambda Access"
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Access from Lambda"
+      SubnetIds:
+        - Fn::ImportValue:
+            !Sub "${ParentVPCStack}-SubnetAPrivate"
+        - Fn::ImportValue:
+            !Sub "${ParentVPCStack}-SubnetBPrivate"
+  MyDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: !Ref DistinguishingName
+      DBInstanceIdentifier: !Ref DistinguishingName
+      PubliclyAccessible: False
+      AllocatedStorage: "20"
+      DBInstanceClass:
+        Ref: "DBInstanceClass"
+      Engine: postgres
+      EngineVersion: "10.4"
+      MasterUsername:
+        Ref: "DBUser"
+      MasterUserPassword:
+        Ref: "DBPassword"
+      DBSubnetGroupName: !Ref "MyDBSubnetGroup"
+      Tags:
+        -
+          Key: "Name"
+          Value: !Ref DistinguishingName
