@@ -1,6 +1,6 @@
 # node-post
 
-NodeJS API using Lambda and PostgreSQL database
+NodeJS API using Lambda and PostgreSQL
 
 ## AWS
 
@@ -21,6 +21,10 @@ Presently we are using the following services:
 A parent VPC stack is required.
 
 Changes can be made at the Infrastructure level using this file (i.e. using DynamoDB instead of RDS).
+
+## Secrets
+
+Secrets are stored in AWS Secrets Manager. The RDS password is auto-generated. An example secret is stored in .env and is made available to the Lambda functions.
 
 ## Deploy
 
