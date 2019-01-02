@@ -4,6 +4,7 @@ phases:
   install:
     commands:
       - echo Entered the install phase...
+      - apt-get update
       - apt-get install -y python-pip
       - pip install -r requirements.txt -t .
       - npm install pg
