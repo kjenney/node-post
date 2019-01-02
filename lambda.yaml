@@ -1,0 +1,115 @@
+---
+# just-lambda
+#
+#
+# author: kjenney
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: 'Deploys a Lambda on private VPC subnets'
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+    - Label:
+        default: 'Parent Stacks'
+      Parameters:
+      - ParentVPCStack
+    - Label:
+        default: 'Lambda'
+      Parameters:
+      - CustomLambdaS3Bucket
+      - CustomLambdaS3Key
+
+Parameters:
+  ParentVPCStack:
+    Description: 'Stack name of parent VPC stack based on vpc/vpc-*azs.yaml template.'
+    Type: String
+    Default: myawesomevpc
+  DistinguishingName:
+    Description: The user-friendly name for resources
+    Type: String
+    MinLength: 1
+    MaxLength: 41
+    AllowedPattern: ^[a-zA-Z0-9]*$    # Only alphanumeric values
+
+  CustomLambdaS3Bucket:
+    Description: The bucket where the code is
+    Type: String
+    Default: node-post-bucket
+
+  CustomLambdaS3Key:
+    Description: The filename of the code
+    Type: String
+    Default: function.zip
+
+Resources:
+  AllAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow from anywhere
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${ParentVPCStack}-VPCID"
+      SecurityGroupIngress:
+      - IpProtocol: "-1"
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: "-1"
+        CidrIp: 0.0.0.0/0
+  LambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Ref DistinguishingName
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AWSXrayFullAccess"
+        - "arn:aws:iam::aws:policy/AWSLambdaExecute"
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+        - "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess"
+        - "arn:aws:iam::aws:policy/AWSLambdaFullAccess"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "root"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action: [
+                  "s3:Get*","s3:List*"
+                ]
+                Resource: "*"
+  MyLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref DistinguishingName
+      Handler: "mylambda.handler"
+      Role:
+        {"Fn::GetAtt" : ["LambdaExecutionRole", "Arn"] }
+      Runtime: "nodejs8.10"
+      Timeout: 100
+      TracingConfig:
+        Mode: "Active"
+      VpcConfig:
+        SecurityGroupIds:
+          - Ref: AllAccessSecurityGroup
+        SubnetIds:
+          - Fn::ImportValue:
+              !Sub "${ParentVPCStack}-SubnetAPrivate"
+          - Fn::ImportValue:
+              !Sub "${ParentVPCStack}-SubnetBPrivate"
+      Code:
+        S3Bucket: !Ref CustomLambdaS3Bucket
+        S3Key: !Ref CustomLambdaS3Key

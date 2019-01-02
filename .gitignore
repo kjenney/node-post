@@ -1,2 +1,15 @@
-node_modules
 .python-version
+node_modules
+bin
+__pycache__
+boto3*
+botocore*
+dateutil
+docutils*
+jmespath*
+python_date*
+s3transfer*
+six*
+urllib3*
+cfnresponse*
+function.zip

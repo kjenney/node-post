@@ -1,12 +1,12 @@
 ---
-# node-post
+# rds-lambda
 #
 #
 # author: kjenney
 
 AWSTemplateFormatVersion: 2010-09-09
 
-Description: 'Deploys the complete node-post stack'
+Description: 'Deploys an RDS instance with a Lambda on private VPC subnets'
 
 Metadata:
   'AWS::CloudFormation::Interface':
@@ -69,11 +69,6 @@ Parameters:
     Type: String
     Default: function.zip
 
-  IPToAllowTrafficTo:
-    Description: The IP address to allow traffic to
-    Type: String
-    AllowedPattern: ^.*/32$    # Ends with /32
-
 Conditions:
   HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
 
@@ -91,7 +86,6 @@ Resources:
       SecurityGroupEgress:
       - IpProtocol: "-1"
         CidrIp: 0.0.0.0/0
-
   LambdaExecutionRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -155,112 +149,6 @@ Resources:
       Code:
         S3Bucket: !Ref CustomLambdaS3Bucket
         S3Key: !Ref CustomLambdaS3Key
-
-  ApplicationSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow port 80 traffic from home
-      VpcId:
-        Fn::ImportValue:
-          !Sub "${ParentVPCStack}-VPCID"
-      SecurityGroupIngress:
-      - IpProtocol: tcp
-        FromPort: 80
-        ToPort: 80
-        CidrIp: !Ref IPToAllowTrafficTo
-      SecurityGroupEgress:
-      - IpProtocol: tcp
-        FromPort: 80
-        ToPort: 80
-        CidrIp: !Ref IPToAllowTrafficTo
-
-  LoadBalancer:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      IpAddressType: ipv4
-      Name: !Ref DistinguishingName
-      SecurityGroups:
-        - Ref: ApplicationSecurityGroup
-      Subnets:
-        - Fn::ImportValue:
-            !Sub "${ParentVPCStack}-SubnetAPublic"
-        - Fn::ImportValue:
-            !Sub "${ParentVPCStack}-SubnetBPublic"
-      Type: application
-      Tags:
-      - Key: Application
-        Value: !Ref DistinguishingName
-  CustomTargetGroupLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      Code:
-        S3Bucket: !Ref CustomLambdaS3Bucket
-        S3Key: !Ref CustomLambdaS3Key
-      Environment:
-        Variables:
-          TargetGroupName: !Ref DistinguishingName
-      Handler: target_group.handler
-      Runtime: python3.6
-      Timeout: 60
-      Role: !GetAtt LambdaExecutionRole.Arn
-  CustomTargetLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      Code:
-        S3Bucket: !Ref CustomLambdaS3Bucket
-        S3Key: !Ref CustomLambdaS3Key
-      Environment:
-        Variables:
-          TargetGroupName: !Ref DistinguishingName
-          LambdaARN: !GetAtt MyLambda.Arn
-      Handler: target.handler
-      Runtime: python3.6
-      Timeout: 60
-      Role: !GetAtt LambdaExecutionRole.Arn
-  CustomTargetPermissionLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      Code:
-        S3Bucket: !Ref CustomLambdaS3Bucket
-        S3Key: !Ref CustomLambdaS3Key
-      Environment:
-        Variables:
-          TargetGroupName: !Ref DistinguishingName
-          LambdaARN: !GetAtt MyLambda.Arn
-      Handler: target_permission.handler
-      Runtime: python3.6
-      Timeout: 60
-      Role: !GetAtt LambdaExecutionRole.Arn
-  TargetGroup:
-    Type: Custom::TargetGroup
-    DependsOn:
-      - LoadBalancer
-    Properties:
-      ServiceToken: !GetAtt CustomTargetGroupLambda.Arn
-  TargetPermission:
-    Type: Custom::TargetPermission
-    DependsOn:
-      - LoadBalancer
-      - TargetGroup
-    Properties:
-      ServiceToken: !GetAtt CustomTargetPermissionLambda.Arn
-  Target:
-    Type: Custom::Target
-    DependsOn:
-      - LoadBalancer
-      - TargetGroup
-      - TargetPermission
-    Properties:
-      ServiceToken: !GetAtt CustomTargetLambda.Arn
-  LoadBalancerListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref LoadBalancer
-      Port: 80
-      Protocol: HTTP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref TargetGroup
   DBSecurityGroup:
     Type: AWS::RDS::DBSecurityGroup
     Properties:
@@ -303,17 +191,3 @@ Resources:
         -
           Key: "Name"
           Value: !Ref DistinguishingName
-
-
-Outputs:
-  LoadBalancer:
-    Description: A reference to the Application Load Balancer
-    Value: !Ref LoadBalancer
-
-  LoadBalancerUrl:
-    Description: The URL of the ALB
-    Value: !GetAtt LoadBalancer.DNSName
-
-  TargetGroup:
-    Description: Our Custom Lambda Target Group
-    Value: !Ref TargetGroup
